@@ -1,0 +1,126 @@
+blueprint:
+  name: Window Venting Reminder with Alexa
+  description: >
+    Sends an Alexa announcement if a window stays open too long or
+    if the room temperature drops below a configured threshold.
+  domain: automation
+  input:
+    window_sensor:
+      name: Window contact sensor
+      description: Binary sensor that indicates whether the window is open.
+      selector:
+        entity:
+          domain: binary_sensor
+
+    window_open_state:
+      name: Window open state
+      description: State of the binary sensor that represents "open".
+      default: "on"
+      selector:
+        select:
+          options:
+            - "on"
+            - "off"
+
+    max_venting_minutes:
+      name: Maximum venting time (minutes)
+      description: Time after opening the window before an Alexa reminder is sent.
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 180
+          unit_of_measurement: minutes
+          mode: slider
+
+    temperature_sensor:
+      name: Room temperature sensor
+      description: Sensor that measures the room temperature.
+      selector:
+        entity:
+          domain: sensor
+
+    min_temperature:
+      name: Minimum room temperature
+      description: Alexa reminder if the temperature drops below this value while the window is open.
+      default: 18
+      selector:
+        number:
+          min: 5
+          max: 30
+          step: 0.5
+          unit_of_measurement: °C
+          mode: slider
+
+    alexa_notify_target:
+      name: Alexa notify target
+      description: >
+        Alexa notify entity for announcements (e.g. notify.alexa_kueche or
+        notify.echo_dot_livingroom_announce).
+      selector:
+        entity:
+          domain: notify
+
+    announcement_message:
+      name: Announcement message
+      description: Message Alexa should announce when reminder is triggered.
+      default: "Please close the window to save heating."
+      selector:
+        text:
+
+mode: restart
+max_exceeded: silent
+
+variables:
+  window_sensor: !input window_sensor
+  window_open_state: !input window_open_state
+  max_venting_minutes: !input max_venting_minutes
+  temperature_sensor: !input temperature_sensor
+  min_temperature: !input min_temperature
+  alexa_notify_target: !input alexa_notify_target
+  announcement_message: !input announcement_message
+
+trigger:
+  # Trigger A: Window has been open for the configured duration
+  - id: time_exceeded
+    platform: state
+    entity_id: !input window_sensor
+    to: !input window_open_state
+    for:
+      minutes: !input max_venting_minutes
+
+  # Trigger B: Temperature drops below threshold while window is open
+  - id: temperature_dropped
+    platform: numeric_state
+    entity_id: !input temperature_sensor
+    below: !input min_temperature
+
+condition:
+  # Window must be currently in the "open" state for any reminder to fire
+  - condition: state
+    entity_id: !input window_sensor
+    state: !input window_open_state
+
+action:
+  - choose:
+      # Optional: You could treat triggers differently if you want.
+      # For now, both triggers use the same Alexa announcement.
+      - conditions:
+          - condition: trigger
+            id: time_exceeded
+        sequence:
+          - service: notify.send_message
+            target:
+              entity_id: !input alexa_notify_target
+            data:
+              message: "{{ announcement_message }}"
+      - conditions:
+          - condition: trigger
+            id: temperature_dropped
+        sequence:
+          - service: notify.send_message
+            target:
+              entity_id: !input alexa_notify_target
+            data:
+              message: "{{ announcement_message }}"
+    default: []
