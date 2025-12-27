@@ -102,25 +102,43 @@ condition:
     state: !input window_open_state
 
 action:
-  - choose:
-      # Optional: You could treat triggers differently if you want.
-      # For now, both triggers use the same Alexa announcement.
-      - conditions:
-          - condition: trigger
-            id: time_exceeded
-        sequence:
-          - service: notify.send_message
-            target:
-              entity_id: !input alexa_notify_target
-            data:
-              message: "{{ announcement_message }}"
-      - conditions:
-          - condition: trigger
-            id: temperature_dropped
-        sequence:
-          - service: notify.send_message
-            target:
-              entity_id: !input alexa_notify_target
-            data:
-              message: "{{ announcement_message }}"
-    default: []
+  # Safety: Only continue if window is still open when the trigger fires
+  - condition: state
+    entity_id: !input window_sensor
+    state: !input window_open_state
+
+  - repeat:
+      # Run up to 5 times OR until the window is closed
+      while:
+        # Continue only while the window is open
+        - condition: state
+          entity_id: !input window_sensor
+          state: !input window_open_state
+        # And only up to 5 repetitions
+        - condition: template
+          value_template: "{{ repeat.index <= 5 }}"
+      sequence:
+        - choose:
+            # First 4 runs: normal reminder
+            - conditions:
+                - condition: template
+                  value_template: "{{ repeat.index < 5 }}"
+              sequence:
+                - service: notify.send_message
+                  target:
+                    entity_id: !input alexa_notify_target
+                  data:
+                    message: "{{ announcement_message }}"
+            # 5th run: stronger alarm message
+            - conditions:
+                - condition: template
+                  value_template: "{{ repeat.index == 5 }}"
+              sequence:
+                - service: notify.send_message
+                  target:
+                    entity_id: !input alexa_notify_target
+                  data:
+                    message: "Alarm. The window is still open. Please close it now."
+          # Wait 1 minute before next iteration (if window still open)
+        - delay:
+            minutes: 1
